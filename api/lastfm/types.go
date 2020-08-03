@@ -1,10 +1,13 @@
 package lastfm
 
 import (
+	"crypto/md5"
+	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/shkh/lastfm-go/lastfm"
+	"gopkg.in/guregu/null.v3"
 )
 
 type Scrobble struct {
@@ -13,20 +16,23 @@ type Scrobble struct {
 }
 
 type Track struct {
-	MusicBrainzID string `json:"id"`
-	Name          string `json:"name"`
-	AlbumID       string `json:"album_id"`
-	ArtistID      string `json:"artist_id"`
+	MusicBrainzID string   `json:"id"`
+	Name          string   `json:"name"`
+	AlbumID       string   `json:"album_id"`
+	ArtistID      string   `json:"artist_id"`
+	Duration      null.Int `json:"duration"`
 }
 
 type Artist struct {
-	MusicBrainzID string `json:"id"`
-	Name          string `json:"name"`
+	MusicBrainzID string      `json:"id"`
+	Name          string      `json:"name"`
+	Art           null.String `json:"art"`
 }
 
 type Album struct {
-	MusicBrainzID string `json:"id"`
-	Name          string `json:"name"`
+	MusicBrainzID string      `json:"id"`
+	Name          string      `json:"name"`
+	Art           null.String `json:"art"`
 }
 
 type ProcessedTrack struct {
@@ -40,11 +46,7 @@ func UserGetRecentTracksToProcessedTracks(response lastfm.UserGetRecentTracks) (
 	var res []ProcessedTrack
 
 	for _, track := range response.Tracks {
-		skippable :=
-			track.NowPlaying == "true" ||
-				track.Mbid == "" ||
-				track.Album.Mbid == "" ||
-				track.Artist.Mbid == ""
+		skippable := track.NowPlaying == "true"
 
 		if skippable {
 			continue
@@ -57,22 +59,47 @@ func UserGetRecentTracksToProcessedTracks(response lastfm.UserGetRecentTracks) (
 			return res, err
 		}
 
+		trackID := track.Mbid
+
+		if len(trackID) == 0 {
+			trackID = fmt.Sprintf("md5-%s", md5.Sum([]byte(track.Name)))
+		}
+
+		artistID := track.Artist.Mbid
+
+		if len(artistID) == 0 {
+			artistID = fmt.Sprintf("md5-%s", md5.Sum([]byte(track.Artist.Name)))
+		}
+
+		albumID := track.Album.Mbid
+
+		if len(albumID) == 0 {
+			albumID = fmt.Sprintf("md5-%s", md5.Sum([]byte(track.Album.Name)))
+		}
+
+		albumArt := null.String{}
+
+		if imgLen := len(track.Images); imgLen > 0 {
+			albumArt.Scan(track.Images[imgLen-1])
+		}
+
 		res = append(res, ProcessedTrack{
 			Scrobble: Scrobble{
-				TrackID: track.Mbid,
+				TrackID: trackID,
 				Time:    time.Unix(ts, 0),
 			},
 			Track: Track{
-				MusicBrainzID: track.Mbid,
+				MusicBrainzID: trackID,
 				Name:          track.Name,
 			},
 			Artist: Artist{
-				MusicBrainzID: track.Artist.Mbid,
+				MusicBrainzID: artistID,
 				Name:          track.Artist.Name,
 			},
 			Album: Album{
-				MusicBrainzID: track.Album.Mbid,
+				MusicBrainzID: albumID,
 				Name:          track.Album.Name,
+				Art:           albumArt,
 			},
 		})
 	}
